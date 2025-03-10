@@ -4,6 +4,7 @@ import whisper # type: ignore
 from pydub import AudioSegment
 from openai import OpenAI
 from dotenv import load_dotenv
+import subprocess
 import textwrap
 import time
 import tiktoken # type: ignore
@@ -79,6 +80,38 @@ def download_youtube_audio(urls, output_format='mp3'):
         except Exception as e:
             print(f"An error occurred: {e}")
 
+def convert_files_to_mp3():
+    directory="youtube_audios"
+    for filename in os.listdir(directory):
+        file_path = os.path.join(directory, filename)
+        file_ext = os.path.splitext(filename)[1].lower()
+        output_file = os.path.join(directory, os.path.splitext(filename)[0] + ".mp3")
+
+        # Skip if already an MP3 file
+        if file_ext == ".mp3":
+            continue
+
+        try:
+            if file_ext in [".wav", ".ogg", ".flac", ".aac", ".m4a"]:
+                print(f"Converting {filename} to MP3...")
+                audio = AudioSegment.from_file(file_path, format=file_ext[1:])
+                audio.export(output_file, format="mp3")
+
+            elif file_ext in [".mp4", ".mkv", ".avi", ".mov"]:
+                print(f"Extracting audio from {filename} using FFmpeg...")
+                command = f'ffmpeg -i "{file_path}" -q:a 0 -map a "{output_file}" -y'
+                subprocess.run(command, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+            else:
+                print(f"Skipping unsupported file type: {filename}")
+                continue
+
+            # Optional: Remove the original file after conversion
+            os.remove(file_path)
+
+        except Exception as e:
+            print(f"Error processing {filename}: {e}")
+
 def transcribe_audio():
     model = whisper.load_model('base.en')
     output_dir = 'youtube_audios'
@@ -93,7 +126,7 @@ def transcribe_audio():
         file_path = os.path.join(output_dir, filename)
         
         # Check if the file is an audio file (you can add more extensions if needed)
-        if file_path.endswith(('.mp3', '.wav', '.webm')):
+        if file_path.endswith(('.mp3', '.wav', '.webm', '.mp4')):
             try:
                 # Transcribe the audio file
                 result = model.transcribe(file_path)
@@ -113,132 +146,119 @@ def transcribe_audio():
                 print(f"An error occurred while transcribing {file_path}: {e}")
 
 
-def format_text_file(input_file: str, output_file: str, line_length: int):
-    # Read the content of the input file
-    with open(input_file, 'r') as file:
-        lines = file.readlines()
+# def format_text_file(input_file: str, output_file: str, line_length: int):
+#     # Read the content of the input file
+#     with open(input_file, 'r') as file:
+#         lines = file.readlines()
 
-    # Open the output file for writing
-    with open(output_file, 'w') as file:
-        for line in lines:
-            # Only wrap lines that exceed the specified line length
-            if len(line) > line_length:
-                # Wrap the line to the specified length and write it to the file
-                wrapped_line = textwrap.fill(line, width=line_length)
-                file.write(wrapped_line + '\n')
-            else:
-                # Write lines that are within the length limit as they are
-                file.write(line)
+#     # Open the output file for writing
+#     with open(output_file, 'w') as file:
+#         for line in lines:
+#             # Only wrap lines that exceed the specified line length
+#             if len(line) > line_length:
+#                 # Wrap the line to the specified length and write it to the file
+#                 wrapped_line = textwrap.fill(line, width=line_length)
+#                 file.write(wrapped_line + '\n')
+#             else:
+#                 # Write lines that are within the length limit as they are
+#                 file.write(line)
 
 def count_tokens(text: str) -> int:
     enc = tiktoken.get_encoding("cl100k_base")  # General encoding for GPT models
     return len(enc.encode(text))
 
+def split_text(text: str, max_tokens: int):
+    """Splits text into chunks that fit within the token limit."""
+    words = text.split()
+    chunks = []
+    chunk = []
+    token_count = 0
+
+    for word in words:
+        word_tokens = count_tokens(word)
+        if token_count + word_tokens > max_tokens:
+            chunks.append(" ".join(chunk))
+            chunk = [word]
+            token_count = word_tokens
+        else:
+            chunk.append(word)
+            token_count += word_tokens
+
+    if chunk:
+        chunks.append(" ".join(chunk))
+
+    return chunks
+
 def ai_analyze():
     client = OpenAI(api_key=OPENAI_API_KEY)
-    # engine = pyttsx3.init()
-    # engine.runAndWait()
+    prompt = "The following is the transcription for one or multiple videos. Analyze the content, summarize each video, and continue the conversation by answering any further questions."
 
-    prompt = "The following is the transcriptions for one or multiple videos. I want you to analyze what is being said and summarize the each video and answer further questions that I might have."
+    if os.path.exists('analyzed_transcription.txt'):
+        os.remove('analyzed_transcription.txt')
 
-    if os.path.exists('analyzed_transciption.txt'):
-        os.remove('analyzed_transciption.txt')
-
-    with open('analyzed_transciption.txt', 'a') as mainfile:
+    with open('analyzed_transcription.txt', 'a') as mainfile:
         with open('transcription.txt', 'r') as file:
             transcript = file.read()
 
-        # Check if the transcript exceeds the token limit
-        token_limit = 16385  # For GPT-3.5
-        tokens = count_tokens(transcript)
+        token_limit = 8000  # Set lower limit to prevent API rejection
+        conversation_history = [{"role": "system", "content": prompt}]
+        transcript_chunks = split_text(transcript, token_limit)
 
-        # If the transcript exceeds the limit, break it into smaller parts
-        if tokens > token_limit:
-            print(f"Transcript has {tokens} tokens, which exceeds the limit of {token_limit}. Splitting...")
-
-            # Split by video or content length (in segments of the transcript)
-            segments = transcript.split('\n\n')  # Split by paragraphs or sections
-            chunk = ""
-            for i, segment in enumerate(segments):
-                # Add the current segment and check if the chunk size exceeds the limit
-                potential_chunk = chunk + "\n\n" + segment
-                if count_tokens(potential_chunk) <= token_limit:
-                    chunk = potential_chunk  # Add this segment to the chunk
-                else:
-                    # Send the current chunk to OpenAI
-                    chat_completion = client.chat.completions.create(
-                        messages=[{"role": "user", "content": prompt + chunk}],
-                        model="gpt-3.5-turbo"
-                    )
-
-                    print(chat_completion.choices[0].message.content)
-                    mainfile.write(chat_completion.choices[0].message.content)
-                    # engine.say(chat_completion.choices[0].message.content)
-                    # engine.runAndWait()
-
-                    # Start a new chunk for the next set of segments
-                    chunk = segment
-
-            # Handle any remaining content in the chunk
-            if chunk:
-                chat_completion = client.chat.completions.create(
-                    messages=[{"role": "user", "content": prompt + chunk}],
-                    model="gpt-3.5-turbo"
-                )
-                print(chat_completion.choices[0].message.content)
-                mainfile.write(chat_completion.choices[0].message.content)
-                # engine.say(chat_completion.choices[0].message.content)
-                # engine.runAndWait()
-
-        else:
-            # Process the full transcript if it's under the token limit
+        for chunk in transcript_chunks:
+            conversation_history.append({"role": "user", "content": chunk})
             chat_completion = client.chat.completions.create(
-                messages=[{"role": "user", "content": prompt + transcript}],
-                model="gpt-3.5-turbo"
+                messages=conversation_history, model="gpt-4-turbo", stream=True
             )
 
-            print(chat_completion.choices[0].message.content)
-            mainfile.write(chat_completion.choices[0].message.content)
-            # engine.say(chat_completion.choices[0].message.content)
-            # engine.runAndWait()
+            response = ""
+            for chunk_response in chat_completion:
+                if chunk_response.choices[0].delta.content:
+                    response += chunk_response.choices[0].delta.content
+                    print(chunk_response.choices[0].delta.content, end="")
+                    mainfile.write(chunk_response.choices[0].delta.content)
 
+            print("\n")
+            conversation_history.append({"role": "assistant", "content": response})
+            time.sleep(5)  # Delay to stay within rate limits
+
+        # Continuous Q&A loop
         while True:
-            # engine.say("Do you have any further questions about the videos?")
-            # engine.runAndWait()
-            user_input = input("Do you have any further questions about the videos? Your answer: ")
-
-            if "yes" in user_input.lower() or "yeah" in user_input.lower() or "y" in user_input.lower():
-                prompt = "The following is a transcribed youtube video. I want you to answer my question according to the information found in this video. "
-                print("Type your question here: ")
-                # engine.say("Type your question here")
-                # engine.runAndWait()
-                user_input = input("Ask a question: ")
-
-                print("You asked " + user_input)
+            user_input = input("Do you have any further questions about the videos? (yes/no): ").strip().lower()
+            if user_input in ["yes", "y"]:
+                question = input("Ask your question: ")
+                conversation_history.append({"role": "user", "content": question})
 
                 chat_completion = client.chat.completions.create(
-                    messages=[{"role": "user", "content": user_input + prompt + transcript}],
-                    model="gpt-3.5-turbo"
+                    messages=conversation_history, model="gpt-4-turbo", stream=True
                 )
 
-                print(chat_completion.choices[0].message.content)
-                mainfile.write(chat_completion.choices[0].message.content)
-                # engine.say(chat_completion.choices[0].message.content)
-                # engine.runAndWait()
-            else:
-                exit()
+                response = ""
+                for chunk_response in chat_completion:
+                    if chunk_response.choices[0].delta.content:
+                        response += chunk_response.choices[0].delta.content
+                        print(chunk_response.choices[0].delta.content, end="")
+                        mainfile.write(chunk_response.choices[0].delta.content)
+
+                print("\n")
+                conversation_history.append({"role": "assistant", "content": response})
+                time.sleep(5)
+
+            elif user_input in ["no", "n"]:
+                print("Goodbye!")
+                break
 try:
     response = input("Do you want to enter in new urls to transcribe?\nEnter y for yes and n for no: ")
     if 'y' in response.lower():
         urls = fetch_urls()
         print("Collected URLs:", urls)
         download_youtube_audio(urls, 'mp3')  # You can change 'mp3' to 'wav' or other formats
+        convert_files_to_mp3()
         transcribe_audio()
     response = input("Do you want to to use ai to analyze transcription?\nEnter y for yes and n for no: ")
     if 'y' in response.lower(): 
         ai_analyze()
     time.sleep(3)
-    format_text_file('analyzed_transciption.txt', 'analyzed_transciption.txt', 80)
+    # format_text_file('analyzed_transciption.txt', 'analyzed_transciption.txt', 80)
 except ValueError as e:
     print(e)
 
