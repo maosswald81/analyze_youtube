@@ -54,31 +54,38 @@ def download_youtube_audio(urls, output_format='mp3'):
         except Exception as e:
             print(f"Error deleting file {file_path}: {e}")
 
-    i = 1
     for url in urls:
-        ydl_opts = {
-            'format': 'bestaudio/best',  # Download the best audio quality
-            'outtmpl': os.path.join(output_dir, 'downloaded_audio.%(ext)s'),  # Save inside 'youtube_audios' folder
-        }
-        
         try:
+            # Extract the video title using yt-dlp
+            with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+                info = ydl.extract_info(url, download=False)
+                video_title = info.get('title', 'unknown_title').replace('/', '_').replace('\\', '_')
+
+            ydl_opts = {
+                'format': 'bestaudio/best',  # Download the best audio quality
+                'outtmpl': os.path.join(output_dir, f"{video_title}.%(ext)s"),  # Save with video title
+            }
+
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
             
+            # Find the downloaded file (assuming it's webm or another format)
+            downloaded_file = os.path.join(output_dir, f"{video_title}.webm")  # Default downloaded format
+            if not os.path.exists(downloaded_file):
+                downloaded_file = os.path.join(output_dir, f"{video_title}.m4a")  # Alternative format
+
             # Convert the audio file to the desired format
-            downloaded_file = os.path.join(output_dir, 'downloaded_audio.webm')  # Default audio file format
             audio = AudioSegment.from_file(downloaded_file)
-            output_filename = os.path.join(output_dir, f"audio{i}.{output_format}")  # Save inside 'youtube_audios' folder
+            output_filename = os.path.join(output_dir, f"{video_title}.{output_format}")
             audio.export(output_filename, format=output_format)
             print(f"Audio saved as {output_filename}")
-            
-            # Step 3: Delete the downloaded audio file
+
+            # Delete the original downloaded audio file
             os.remove(downloaded_file)
             print(f"Deleted the original downloaded audio file: {downloaded_file}")
-            i += 1
-            
+
         except Exception as e:
-            print(f"An error occurred: {e}")
+            print(f"An error occurred while processing {url}: {e}")
 
 def convert_files_to_mp3():
     directory="youtube_audios"
