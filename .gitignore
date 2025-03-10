@@ -8,6 +8,7 @@
 *.wma
 *.aiff
 *.opus
+*.webm
 
 # Ignore all text files
 *.txt
