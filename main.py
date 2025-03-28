@@ -1,7 +1,7 @@
 import yt_dlp # type: ignore
 import datetime
 import whisper # type: ignore
-from pydub import AudioSegment
+from pydub import AudioSegment # type: ignore
 from openai import OpenAI
 from dotenv import load_dotenv
 import subprocess
