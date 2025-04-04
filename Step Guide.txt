@@ -1,0 +1,47 @@
+Step-by-step guide to make the application work:
+
+Install Prerequisites:
+
+Install Python (3.8 or later) and ensure pip is available.
+Install Node.js (v16 or later).
+Install FFmpeg for audio processing.
+Create accounts for OpenAI, Supabase, and Stripe.
+Set Up Python Environment:
+
+Create a virtual environment:
+Activate the virtual environment:
+On Windows:
+On macOS/Linux:
+Install required Python packages:
+Set Up Node.js Environment:
+
+Install Node.js dependencies:
+Configure Environment Variables:
+
+Create a .env file in the root directory.
+Add the following variables:
+Set Up Supabase:
+
+Create a Supabase project.
+Run the SQL schema in supabase/schema.sql to create the transcriptions table.
+Run the Backend:
+
+Execute the Python script:
+Follow the prompts to download, transcribe, and analyze YouTube videos.
+Run the Frontend:
+
+Start the Next.js development server:
+Open the application in your browser at http://localhost:3000.
+Test Stripe Integration:
+
+Use the /api/stripe.js endpoint to test payment intents.
+Deploy the Application (Optional):
+
+Deploy the frontend to a hosting platform like Vercel.
+Deploy the backend to a cloud service or run it locally.
+Verify Functionality:
+
+Ensure audio files are downloaded and transcribed correctly.
+Check that transcription segments are displayed in the web interface.
+Test AI analysis and Stripe payments.
+This should get your application up and running!
